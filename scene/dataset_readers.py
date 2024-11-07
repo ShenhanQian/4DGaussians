@@ -78,6 +78,7 @@ def getNerfppNorm(cam_info):
 
 def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
     cam_infos = []
+    n_frames = len(cam_extrinsics)
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
         # the exact output you're looking for:
@@ -116,7 +117,8 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image = PILtoTorch(image,None)
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                               image_path=image_path, image_name=image_name, width=width, height=height,
-                              time = float(idx/len(cam_extrinsics)), mask=None) # default by monocular settings.
+                              time=float(idx/(n_frames-1)) if n_frames > 1 else 0.5,
+                              mask=None) # default by monocular settings.
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -197,6 +199,59 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
                            nerf_normalization=nerf_normalization,
                            ply_path=ply_path)
     return scene_info
+
+def readDust3rColmapSceneInfo(path, images, eval, llffhold=8):
+    try:
+        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
+        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
+        cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
+        cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
+    except:
+        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
+        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
+        cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
+        cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
+
+    reading_dir = "images" if images == None else images
+    train_cam_infos = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
+    if eval:
+        cameras_extrinsic_file = os.path.join(path, "init_test_pose/sparse/0", "images.txt")
+        cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
+        assert len(cam_extrinsics) == 1, "Only one camera is supported for test set."
+        cam_extrinsics[1] = cam_extrinsics[1]._replace(name=f"1_{cam_extrinsics[1].name}")  # the only key in the test set is 1
+        cam_intrinsics = {1: cam_intrinsics[1]}  # we assume the same intrinsic for all test cameras
+        test_cam_infos = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, "init_test_pose/images"))
+    else:
+        test_cam_infos = []
+
+    nerf_normalization = getNerfppNorm(train_cam_infos)
+
+    ply_path = os.path.join(path, "sparse/0/points3D.ply")
+    bin_path = os.path.join(path, "sparse/0/points3D.bin")
+    txt_path = os.path.join(path, "sparse/0/points3D.txt")
+    if not os.path.exists(ply_path):
+        print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
+        try:
+            xyz, rgb, _ = read_points3D_binary(bin_path)
+        except:
+            xyz, rgb, _ = read_points3D_text(txt_path)
+        storePly(ply_path, xyz, rgb)
+    
+    try:
+        pcd = fetchPly(ply_path)
+        
+    except:
+        pcd = None
+    
+    scene_info = SceneInfo(point_cloud=pcd,
+                           train_cameras=train_cam_infos,
+                           test_cameras=test_cam_infos,
+                           video_cameras=train_cam_infos,  # TODO: should combie train and test in an ordered way
+                           maxtime=1,
+                           nerf_normalization=nerf_normalization,
+                           ply_path=ply_path)
+    return scene_info
+
 def generateCamerasFromTransforms(path, template_transformsfile, extension, maxtime):
     trans_t = lambda t : torch.Tensor([
     [1,0,0,0],
@@ -633,6 +688,7 @@ def readMultipleViewinfos(datadir,llffhold=8):
     return scene_info
 
 sceneLoadTypeCallbacks = {
+    "Dust3rColmap": readDust3rColmapSceneInfo,
     "Colmap": readColmapSceneInfo,
     "Blender" : readNerfSyntheticInfo,
     "dynerf" : readdynerfInfo,
