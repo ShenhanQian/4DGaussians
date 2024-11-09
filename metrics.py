@@ -33,7 +33,7 @@ def readImages(renders_dir, gt_dir):
         image_names.append(fname)
     return renders, gts, image_names
 
-def evaluate(model_paths):
+def evaluate(model_paths, model_set=""):
 
     full_dict = {}
     per_view_dict = {}
@@ -67,39 +67,38 @@ def evaluate(model_paths):
                 ssims = []
                 psnrs = []
                 lpipss = []
-                lpipsa = []
-                ms_ssims = []
-                Dssims = []
+                # lpipsa = []
+                # ms_ssims = []
+                # Dssims = []
                 for idx in tqdm(range(len(renders)), desc="Metric evaluation progress"):
                     ssims.append(ssim(renders[idx], gts[idx]))
                     psnrs.append(psnr(renders[idx], gts[idx]))
                     lpipss.append(lpips(renders[idx], gts[idx], net_type='vgg'))
-                    ms_ssims.append(ms_ssim(renders[idx], gts[idx],data_range=1, size_average=True ))
-                    lpipsa.append(lpips(renders[idx], gts[idx], net_type='alex'))
-                    Dssims.append((1-ms_ssims[-1])/2)
+                    # ms_ssims.append(ms_ssim(renders[idx], gts[idx],data_range=1, size_average=True ))
+                    # lpipsa.append(lpips(renders[idx], gts[idx], net_type='alex'))
+                    # Dssims.append((1-ms_ssims[-1])/2)
 
                 print("Scene: ", scene_dir,  "SSIM : {:>12.7f}".format(torch.tensor(ssims).mean(), ".5"))
                 print("Scene: ", scene_dir,  "PSNR : {:>12.7f}".format(torch.tensor(psnrs).mean(), ".5"))
                 print("Scene: ", scene_dir,  "LPIPS-vgg: {:>12.7f}".format(torch.tensor(lpipss).mean(), ".5"))
-                print("Scene: ", scene_dir,  "LPIPS-alex: {:>12.7f}".format(torch.tensor(lpipsa).mean(), ".5"))
-                print("Scene: ", scene_dir,  "MS-SSIM: {:>12.7f}".format(torch.tensor(ms_ssims).mean(), ".5"))
-                print("Scene: ", scene_dir,  "D-SSIM: {:>12.7f}".format(torch.tensor(Dssims).mean(), ".5"))
+                # print("Scene: ", scene_dir,  "LPIPS-alex: {:>12.7f}".format(torch.tensor(lpipsa).mean(), ".5"))
+                # print("Scene: ", scene_dir,  "MS-SSIM: {:>12.7f}".format(torch.tensor(ms_ssims).mean(), ".5"))
+                # print("Scene: ", scene_dir,  "D-SSIM: {:>12.7f}".format(torch.tensor(Dssims).mean(), ".5"))
 
                 full_dict[scene_dir][method].update({"SSIM": torch.tensor(ssims).mean().item(),
                                                         "PSNR": torch.tensor(psnrs).mean().item(),
                                                         "LPIPS-vgg": torch.tensor(lpipss).mean().item(),
-                                                        "LPIPS-alex": torch.tensor(lpipsa).mean().item(),
-                                                        "MS-SSIM": torch.tensor(ms_ssims).mean().item(),
-                                                        "D-SSIM": torch.tensor(Dssims).mean().item()},
-
+                                                        # "LPIPS-alex": torch.tensor(lpipsa).mean().item(),
+                                                        # "MS-SSIM": torch.tensor(ms_ssims).mean().item(),
+                                                        # "D-SSIM": torch.tensor(Dssims).mean().item()
+                                                        },
                                                     )
                 per_view_dict[scene_dir][method].update({"SSIM": {name: ssim for ssim, name in zip(torch.tensor(ssims).tolist(), image_names)},
                                                             "PSNR": {name: psnr for psnr, name in zip(torch.tensor(psnrs).tolist(), image_names)},
                                                             "LPIPS-vgg": {name: lp for lp, name in zip(torch.tensor(lpipss).tolist(), image_names)},
-                                                            "LPIPS-alex": {name: lp for lp, name in zip(torch.tensor(lpipsa).tolist(), image_names)},
-                                                            "MS-SSIM": {name: lp for lp, name in zip(torch.tensor(ms_ssims).tolist(), image_names)},
-                                                            "D-SSIM": {name: lp for lp, name in zip(torch.tensor(Dssims).tolist(), image_names)},
-
+                                                            # "LPIPS-alex": {name: lp for lp, name in zip(torch.tensor(lpipsa).tolist(), image_names)},
+                                                            # "MS-SSIM": {name: lp for lp, name in zip(torch.tensor(ms_ssims).tolist(), image_names)},
+                                                            # "D-SSIM": {name: lp for lp, name in zip(torch.tensor(Dssims).tolist(), image_names)},
                                                             }
                                                         )
 
@@ -111,6 +110,28 @@ def evaluate(model_paths):
             
             print("Unable to compute metrics for model", scene_dir)
             raise e
+    
+    methods_metrics = {}
+    for scene, metrics_methods in full_dict.items():
+        for method, metrics in metrics_methods.items():
+            if method not in methods_metrics:
+                methods_metrics[method] = {}
+            for metric, value in metrics.items():
+                if metric not in methods_metrics[method]:
+                    methods_metrics[method][metric] = []
+                methods_metrics[method][metric].append(value)
+    
+    print("Average metrics:")
+    for method, metrics in methods_metrics.items():
+        print("Method:", method)
+        for metric, values in metrics.items():
+            metrics[metric] = torch.tensor(values).mean().item()
+            print(metric, ":", metrics[metric])
+    name = f"results_{model_set.split('/')[-1]}.json" if model_set != "" else "results.json"
+    print("Number of scenes: ", len(full_dict))
+    methods_metrics['number_of_scenes'] = len(full_dict)
+    with open(name, 'w') as fp:
+        json.dump(methods_metrics, fp, indent=True)
 
 if __name__ == "__main__":
     device = torch.device("cuda:0")
@@ -118,6 +139,15 @@ if __name__ == "__main__":
 
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
-    parser.add_argument('--model_paths', '-m', required=True, nargs="+", type=str, default=[])
+    parser.add_argument('--model_paths', '-m', nargs="+", type=str, default=[])
+    parser.add_argument('--model_set', '-d', type=str, default="")
     args = parser.parse_args()
-    evaluate(args.model_paths)
+    
+    if len(args.model_paths) > 0:
+        model_paths = args.model_paths
+    elif args.model_set != "":
+        model_paths = [os.path.join(args.model_set, model) for model in os.listdir(args.model_set)]
+    
+    print("Evaluating models at paths:", model_paths)
+    print("Number of models to be evaluated: ", len(model_paths))
+    evaluate(model_paths, args.model_set)
