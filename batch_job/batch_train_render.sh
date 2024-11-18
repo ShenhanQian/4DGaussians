@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # grep all paths that matches "kitti/*/*""
-# SCENES=$(ls -d data/kitti/*/*/dust3r_2_views)
+SCENES=$(ls -d data/kitti/*/*/dust3r_2_views)
 # SCENES=$(ls -d data/kubric/*/*/dust3r_2_views)
 
 # print the number of scenes
@@ -13,7 +13,8 @@ DATASET=$(echo "$SCENES" | head -n 1 | cut -d'/' -f2)
 for SCENE in $SCENES
 do
     # take the second and third to the last parts of the path and replace "/" with "_"
-    EXP_NAME=$DATASET/$(echo $SCENE | rev | cut -d'/' -f2,3 | rev | sed 's/\//_/g')
+    # EXP_NAME=${DATASET}/$(echo $SCENE | rev | cut -d'/' -f2,3 | rev | sed 's/\//_/g')
+    EXP_NAME=${DATASET}_cube128T2_noReg_sh0/$(echo $SCENE | rev | cut -d'/' -f2,3 | rev | sed 's/\//_/g')
 
     # replace "/" with "_"
     JOB_NAME=$(echo $EXP_NAME | sed 's/\//_/g')
@@ -26,7 +27,7 @@ do
         fi
     done
 
-    CMD_TRAIN="python train.py -s $SCENE --port $PORT --expname $EXP_NAME --configs arguments/$DATASET/default.py"
+    CMD_TRAIN="python train.py -s $SCENE --port $PORT --expname $EXP_NAME --configs arguments/$DATASET/default.py --sh_degree 0"
     # echo $CMD_TRAIN
     # $CMD_TRAIN
 

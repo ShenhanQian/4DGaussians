@@ -137,6 +137,8 @@ class HexPlaneField(nn.Module):
                 in_dim=config["input_coordinate_dim"],
                 out_dim=config["output_coordinate_dim"],
                 reso=config["resolution"],
+                a=-0.1,
+                b=0.1
             )
             # shape[1] is out-dim - Concatenate over feature len for each scale
             if self.concat_features:

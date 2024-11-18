@@ -218,9 +218,11 @@ class deform_network(nn.Module):
 def initialize_weights(m):
     if isinstance(m, nn.Linear):
         # init.constant_(m.weight, 0)
-        init.xavier_uniform_(m.weight,gain=1)
+        # init.xavier_uniform_(m.weight,gain=1)
+        init.xavier_uniform_(m.weight,gain=0.001)
         if m.bias is not None:
-            init.xavier_uniform_(m.weight,gain=1)
+            # init.xavier_uniform_(m.weight,gain=1)
+            init.xavier_uniform_(m.weight,gain=0.001)
             # init.constant_(m.bias, 0)
 def poc_fre(input_data,poc_buf):
 
