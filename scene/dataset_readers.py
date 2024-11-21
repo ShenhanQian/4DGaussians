@@ -223,6 +223,8 @@ def readDust3rColmapSceneInfo(path, images, eval, llffhold=8):
         test_cam_infos = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, "init_test_pose/images"))
     else:
         test_cam_infos = []
+    
+    interp_cam_infos = readDust3rColmapCamerasInterp(cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
@@ -246,11 +248,56 @@ def readDust3rColmapSceneInfo(path, images, eval, llffhold=8):
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
-                           video_cameras=train_cam_infos,  # TODO: should combie train and test in an ordered way
+                           video_cameras=interp_cam_infos,
                            maxtime=1,
                            nerf_normalization=nerf_normalization,
                            ply_path=ply_path)
     return scene_info
+
+def readDust3rColmapCamerasInterp(cam_intrinsics, images_folder):
+    pose_interpolated_path = f'{images_folder}/../pose_interpolated.npy'
+    pose_interpolated = np.load(pose_interpolated_path)
+    intr = cam_intrinsics[1]
+
+    cam_infos = []
+    n_time = pose_interpolated.shape[0]
+    for idx, pose_npy in enumerate(pose_interpolated):
+        sys.stdout.write('\r')
+        sys.stdout.write("Reading camera {}/{}".format(idx+1, pose_interpolated.shape[0]))
+        sys.stdout.flush()
+
+        extr = pose_npy
+        intr = intr
+        height = intr.height
+        width = intr.width
+
+        uid = idx
+        R = extr[:3, :3].transpose()
+        T = extr[:3, 3]
+        if intr.model=="SIMPLE_PINHOLE":
+            focal_length_x = intr.params[0]
+            FovY = focal2fov(focal_length_x, height)
+            FovX = focal2fov(focal_length_x, width)
+        elif intr.model=="PINHOLE":
+            focal_length_x = intr.params[0]
+            focal_length_y = intr.params[1]
+            FovY = focal2fov(focal_length_y, height)
+            FovX = focal2fov(focal_length_x, width)
+        else:
+            assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
+
+        images_list = os.listdir(os.path.join(images_folder))
+        image_name_0 = images_list[0]
+        image_name = str(idx).zfill(4)
+        image = Image.open(images_folder + '/' + image_name_0)
+        image = PILtoTorch(image,None)
+
+        cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
+                              image_path=images_folder, image_name=image_name, width=width, height=height,
+                              time=idx/(n_time-1), mask=None)
+        cam_infos.append(cam_info)
+    sys.stdout.write('\n')
+    return cam_infos
 
 def generateCamerasFromTransforms(path, template_transformsfile, extension, maxtime):
     trans_t = lambda t : torch.Tensor([
